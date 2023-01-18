@@ -87,6 +87,7 @@
 //! # let response = tiny_http::Response::from_file(File::open(&Path::new("image.png")).unwrap());
 //! let _ = request.respond(response);
 //! ```
+#![allow(warnings)]
 #![forbid(unsafe_code)]
 #![deny(rust_2018_idioms)]
 #![allow(clippy::match_like_matches_macro)]
