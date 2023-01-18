@@ -170,7 +170,7 @@ pub struct IncomingRequests<'a> {
 }
 
 /// Represents the parameters required to create a server.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ServerConfig {
     /// The addresses to try to listen to.
     pub addr: ConfigListenAddr,
@@ -179,13 +179,27 @@ pub struct ServerConfig {
     pub ssl: Option<SslConfig>,
 }
 
-/// Configuration of the server for SSL.
+/// Configuration of the server for SSL encoded in PEM format
 #[derive(Debug, Clone)]
-pub struct SslConfig {
+pub struct SslConfigPem {
     /// Contains the public certificate to send to clients.
     pub certificate: Vec<u8>,
     /// Contains the ultra-secret private key used to decode communications.
     pub private_key: Vec<u8>,
+}
+
+/// Configuration of the server for SSL encoded in DER format
+#[derive(Debug, Clone)]
+pub struct SslConfigDer {
+    /// Contains the public certificate to send to clients.
+    pub certificates: Vec<Vec<u8>>,
+    /// Contains the ultra-secret private key used to decode communications.
+    pub private_key: Vec<u8>,
+}
+#[derive(Clone)]
+pub enum SslConfig {
+    Der(SslConfigDer),
+    Pem(SslConfigPem),
 }
 
 impl Server {
@@ -263,13 +277,23 @@ impl Server {
         type SslContext = ();
         #[cfg(any(feature = "ssl-openssl", feature = "ssl-rustls"))]
         type SslContext = crate::ssl::SslContextImpl;
-        let ssl: Option<SslContext> = {
-            match ssl_config {
+        let ssl: Option<SslContext> =
+            {
+                match ssl_config {
                 #[cfg(any(feature = "ssl-openssl", feature = "ssl-rustls"))]
-                Some(config) => Some(SslContext::from_pem(
-                    config.certificate,
-                    Zeroizing::new(config.private_key),
-                )?),
+                Some(SslConfig::Pem(SslConfigPem { certificate, private_key })) => {
+                Some(SslContext::from_pem(
+                    certificate,
+                    Zeroizing::new(private_key),
+                )?)
+                },
+                #[cfg(any(feature = "ssl-openssl", feature = "ssl-rustls"))]
+                Some(SslConfig::Der(SslConfigDer { certificates, private_key })) => {
+                    Some(SslContext::from_der(
+                        certificates,
+                        Zeroizing::new(private_key),
+                    )?)
+                }
                 #[cfg(not(any(feature = "ssl-openssl", feature = "ssl-rustls")))]
                 Some(_) => return Err(
                     "Building a server with SSL requires enabling the `ssl` feature in tiny-http"
@@ -277,7 +301,7 @@ impl Server {
                 ),
                 None => None,
             }
-        };
+            };
 
         // creating a task where server.accept() is continuously called
         // and ClientConnection objects are pushed in the messages queue

@@ -102,6 +102,39 @@ impl RustlsContext {
         Ok(Self(Arc::new(tls_conf)))
     }
 
+    /// Create a RustlsContext from DER encoded certificate chain and private key
+    ///
+    /// `certificates` is certificate chain encoded as a vector of DER-encoded certificates.
+    /// `private_key` is the corresponding DER-encoded RSA, ECDSA, or Ed25519 private key.
+    pub(crate) fn from_der(
+        certificates: Vec<Vec<u8>>,
+        private_key: Zeroizing<Vec<u8>>,
+    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        let certificate_chain: Vec<rustls::Certificate> = certificates
+            .into_iter()
+            .map(|bytes| rustls::Certificate(bytes))
+            .collect();
+
+        if certificate_chain.is_empty() {
+            return Err("Certificate chain cannot be empty.".into());
+        }
+        // Beware we have to extract the private from zeroize wrapper
+        // to pass it to rustls, rustls does (yet) not do zeroisation of the secret key
+        // Relevant GH issue : <https://github.com/rustls/rustls/issues/265>
+        // Not really relevant in our case : zeroization would add almost no security for us.
+        // Rationale : Zeroization only add protection to data that is no longer being used.
+        // The private key needs to be used for the entire lifetime of the attested server
+        // which is the same lifetime as the enclave.
+        let private_key = rustls::PrivateKey(private_key.to_vec());
+
+        let tls_conf = rustls::ServerConfig::builder()
+            .with_safe_defaults()
+            .with_no_client_auth()
+            .with_single_cert(certificate_chain, private_key)?;
+
+        Ok(Self(Arc::new(tls_conf)))
+    }
+
     pub(crate) fn accept(
         &self,
         stream: Connection,
